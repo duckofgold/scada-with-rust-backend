@@ -1,0 +1,59 @@
+### Login as admin
+POST http://localhost:8080/api/login
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "admin123"
+}
+
+### Create a machine (replace TOKEN with admin token)
+POST http://localhost:8080/api/machines
+Authorization: Bearer TOKEN
+Content-Type: application/json
+
+{
+  "name": "Test Machine",
+  "code": "MCH-001",
+  "location": "Plant 1",
+  "machine_type": "Conveyor"
+}
+
+### List machines (replace TOKEN with admin or user token)
+GET http://localhost:8080/api/machines
+Authorization: Bearer TOKEN
+
+### Update machine speed (replace MACHINE_API_KEY)
+POST http://localhost:8080/api/machines/update
+Authorization: Bearer MACHINE_API_KEY
+Content-Type: application/json
+
+{
+  "speed": 123.45,
+  "message": "Running at test speed"
+}
+
+### Add a comment to a machine (replace TOKEN and MACHINE_ID)
+POST http://localhost:8080/api/machines/{{MACHINE_ID}}/comments
+Authorization: Bearer TOKEN
+Content-Type: application/json
+
+{
+  "comment": "Routine check completed.",
+  "priority": "normal"
+}
+
+### Get comments for a machine (replace TOKEN and MACHINE_ID)
+GET http://localhost:8080/api/machines/{{MACHINE_ID}}/comments
+Authorization: Bearer TOKEN
+
+### Create a user (replace TOKEN with admin token)
+POST http://localhost:8080/api/users
+Authorization: Bearer TOKEN
+Content-Type: application/json
+
+{
+  "username": "user1",
+  "password": "userpass",
+  "role": "manager"
+} 
