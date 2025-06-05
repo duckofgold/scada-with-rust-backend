@@ -36,15 +36,22 @@ pub async fn login(
     State(pool): State<DbPool>,
     Json(payload): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>, (StatusCode, Json<ErrorResponse>)> {
+    println!("[LOG] Login request received for user: {}", payload.username);
     match auth::authenticate_user(&payload.username, &payload.password, &pool).await {
-        Some(user) => Ok(Json(LoginResponse {
-            token: user.token,
-            role: user.role,
-            username: user.username,
-        })),
-        None => Err((StatusCode::UNAUTHORIZED, Json(ErrorResponse {
-            error: "Invalid credentials".to_string(),
-        }))),
+        Some(user) => {
+            println!("[LOG] Login successful for user: {}", user.username);
+            Ok(Json(LoginResponse {
+                token: user.token,
+                role: user.role,
+                username: user.username,
+            }))
+        },
+        None => {
+            println!("[LOG] Login failed for user: {}", payload.username);
+            Err((StatusCode::UNAUTHORIZED, Json(ErrorResponse {
+                error: "Invalid credentials".to_string(),
+            })))
+        },
     }
 }
 
@@ -54,6 +61,7 @@ pub async fn create_machine(
     State(pool): State<DbPool>,
     Json(payload): Json<CreateMachineRequest>,
 ) -> Result<(StatusCode, Json<MachineResponse>), (StatusCode, Json<ErrorResponse>)> {
+    println!("[LOG] Create machine request received: {}", payload.name);
     require_admin(&headers, &pool).await?;
     
     let api_key = auth::generate_machine_api_key();
@@ -71,6 +79,7 @@ pub async fn create_machine(
     {
         Ok(result) => {
             let machine_id = result.last_insert_rowid();
+            println!("[LOG] Machine created successfully: {}", payload.name);
             Ok((StatusCode::CREATED, Json(MachineResponse {
                 id: machine_id,
                 name: payload.name,
@@ -80,9 +89,12 @@ pub async fn create_machine(
                 machine_type: payload.machine_type,
             })))
         },
-        Err(_) => Err((StatusCode::BAD_REQUEST, Json(ErrorResponse {
-            error: "Machine code already exists".to_string(),
-        }))),
+        Err(_) => {
+            println!("[LOG] Failed to create machine: {}", payload.name);
+            Err((StatusCode::BAD_REQUEST, Json(ErrorResponse {
+                error: "Machine code already exists".to_string(),
+            })))
+        },
     }
 }
 
@@ -91,6 +103,7 @@ pub async fn list_machines(
     headers: HeaderMap,
     State(pool): State<DbPool>,
 ) -> Result<Json<MachineListResponse>, (StatusCode, Json<ErrorResponse>)> {
+    println!("[LOG] List machines request received");
     let token = extract_token(&headers)
         .ok_or_else(|| (StatusCode::UNAUTHORIZED, Json(ErrorResponse { error: "Missing token".to_string() })))?;
     
@@ -101,10 +114,16 @@ pub async fn list_machines(
     }
     
     match sqlx::query_as::<_, Machine>("SELECT * FROM machines ORDER BY name").fetch_all(&pool).await {
-        Ok(machines) => Ok(Json(MachineListResponse { machines })),
-        Err(_) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
-            error: "Database error".to_string(),
-        }))),
+        Ok(machines) => {
+            println!("[LOG] Machines listed successfully");
+            Ok(Json(MachineListResponse { machines }))
+        },
+        Err(_) => {
+            println!("[LOG] Failed to list machines");
+            Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
+                error: "Database error".to_string(),
+            })))
+        },
     }
 }
 
@@ -114,6 +133,7 @@ pub async fn update_machine_speed(
     State(pool): State<DbPool>,
     Json(payload): Json<SpeedUpdateRequest>,
 ) -> Result<Json<UpdateResponse>, (StatusCode, Json<ErrorResponse>)> {
+    println!("[LOG] Update machine speed request received");
     let token = extract_token(&headers)
         .ok_or_else(|| (StatusCode::UNAUTHORIZED, Json(ErrorResponse { error: "Missing token".to_string() })))?;
     
@@ -149,14 +169,18 @@ pub async fn update_machine_speed(
             .execute(&pool)
             .await;
             
+            println!("[LOG] Machine speed updated successfully for machine ID: {}", machine_id);
             Ok(Json(UpdateResponse {
                 success: true,
                 timestamp,
             }))
         },
-        Err(_) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
-            error: "Failed to update machine".to_string(),
-        }))),
+        Err(_) => {
+            println!("[LOG] Failed to update machine speed for machine ID: {}", machine_id);
+            Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
+                error: "Failed to update machine".to_string(),
+            })))
+        },
     }
 }
 
@@ -167,6 +191,7 @@ pub async fn add_comment(
     State(pool): State<DbPool>,
     Json(payload): Json<AddCommentRequest>,
 ) -> Result<(StatusCode, Json<MaintenanceComment>), (StatusCode, Json<ErrorResponse>)> {
+    println!("[LOG] Add comment request received for machine ID: {}", machine_id);
     let token = extract_token(&headers)
         .ok_or_else(|| (StatusCode::UNAUTHORIZED, Json(ErrorResponse { error: "Missing token".to_string() })))?;
     
@@ -203,6 +228,7 @@ pub async fn add_comment(
     {
         Ok(result) => {
             let comment_id = result.last_insert_rowid();
+            println!("[LOG] Comment added successfully for machine ID: {}", machine_id);
             Ok((StatusCode::CREATED, Json(MaintenanceComment {
                 id: comment_id,
                 machine_id,
@@ -212,9 +238,12 @@ pub async fn add_comment(
                 created_at: timestamp,
             })))
         },
-        Err(_) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
-            error: "Failed to add comment".to_string(),
-        }))),
+        Err(_) => {
+            println!("[LOG] Failed to add comment for machine ID: {}", machine_id);
+            Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
+                error: "Failed to add comment".to_string(),
+            })))
+        },
     }
 }
 
@@ -224,6 +253,7 @@ pub async fn get_comments(
     Path(machine_id): Path<i64>,
     State(pool): State<DbPool>,
 ) -> Result<Json<CommentListResponse>, (StatusCode, Json<ErrorResponse>)> {
+    println!("[LOG] Get comments request received for machine ID: {}", machine_id);
     let token = extract_token(&headers)
         .ok_or_else(|| (StatusCode::UNAUTHORIZED, Json(ErrorResponse { error: "Missing token".to_string() })))?;
     
@@ -251,10 +281,16 @@ pub async fn get_comments(
     .fetch_all(&pool)
     .await
     {
-        Ok(comments) => Ok(Json(CommentListResponse { comments })),
-        Err(_) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
-            error: "Database error".to_string(),
-        }))),
+        Ok(comments) => {
+            println!("[LOG] Comments retrieved successfully for machine ID: {}", machine_id);
+            Ok(Json(CommentListResponse { comments }))
+        },
+        Err(_) => {
+            println!("[LOG] Failed to retrieve comments for machine ID: {}", machine_id);
+            Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
+                error: "Database error".to_string(),
+            })))
+        },
     }
 }
 
@@ -313,6 +349,7 @@ pub async fn create_user(
     State(pool): State<DbPool>,
     Json(payload): Json<CreateUserRequest>,
 ) -> Result<(StatusCode, Json<User>), (StatusCode, Json<ErrorResponse>)> {
+    println!("[LOG] Create user request received for user: {}", payload.username);
     require_admin(&headers, &pool).await?;
     
     let token = auth::generate_user_token();
@@ -329,6 +366,7 @@ pub async fn create_user(
     {
         Ok(result) => {
             let user_id = result.last_insert_rowid();
+            println!("[LOG] User created successfully: {}", payload.username);
             Ok((StatusCode::CREATED, Json(User {
                 id: user_id,
                 username: payload.username,
@@ -336,8 +374,11 @@ pub async fn create_user(
                 token,
             })))
         },
-        Err(_) => Err((StatusCode::BAD_REQUEST, Json(ErrorResponse {
-            error: "Username already exists".to_string(),
-        }))),
+        Err(_) => {
+            println!("[LOG] Failed to create user: {}", payload.username);
+            Err((StatusCode::BAD_REQUEST, Json(ErrorResponse {
+                error: "Username already exists".to_string(),
+            })))
+        },
     }
 }
