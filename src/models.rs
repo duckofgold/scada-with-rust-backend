@@ -119,3 +119,24 @@ pub struct UpdateResponse {
     pub success: bool,
     pub timestamp: i64,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateUserRequest {
+    pub password: Option<String>,
+    pub role: Option<String>,
+    pub is_active: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateMachineRequest {
+    pub name: Option<String>,
+    pub code: Option<String>,
+    pub location: Option<String>,
+    pub machine_type: Option<String>,
+    pub regenerate_api_key: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UserListResponse {
+    pub users: Vec<User>,
+}

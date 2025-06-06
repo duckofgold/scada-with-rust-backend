@@ -1,5 +1,5 @@
 use axum::{
-    routing::{get, post},
+    routing::{get, post, put},
     Router,
 };
 use std::net::SocketAddr;
@@ -38,7 +38,9 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/machines/update", post(handlers::update_machine_speed))
         .route("/api/machines/{id}/comments", get(handlers::get_comments).post(handlers::add_comment))
         .route("/api/machines/{id}/history", get(handlers::get_history))
-        .route("/api/users", post(handlers::create_user))
+        .route("/api/machines/{id}", put(handlers::update_machine))
+        .route("/api/users", get(handlers::list_users).post(handlers::create_user))
+        .route("/api/users/{id}", put(handlers::update_user))
         .layer(CorsLayer::permissive())
         .with_state(db);
 

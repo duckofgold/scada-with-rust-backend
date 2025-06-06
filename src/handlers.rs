@@ -4,6 +4,7 @@ use axum::{
     response::Json,
 };
 use serde::Deserialize;
+use sqlx::Row;
 
 use crate::{
     auth::{self, AuthResult},
@@ -378,6 +379,231 @@ pub async fn create_user(
             println!("[LOG] Failed to create user: {}", payload.username);
             Err((StatusCode::BAD_REQUEST, Json(ErrorResponse {
                 error: "Username already exists".to_string(),
+            })))
+        },
+    }
+}
+
+// PUT /api/users/{id}
+pub async fn update_user(
+    headers: HeaderMap,
+    Path(user_id): Path<i64>,
+    State(pool): State<DbPool>,
+    Json(payload): Json<UpdateUserRequest>,
+) -> Result<Json<User>, (StatusCode, Json<ErrorResponse>)> {
+    println!("[LOG] Update user request received for user ID: {}", user_id);
+    require_admin(&headers, &pool).await?;
+
+    // Check if user exists
+    if let Err(_) = sqlx::query("SELECT id FROM users WHERE id = ?")
+        .bind(user_id)
+        .fetch_one(&pool)
+        .await
+    {
+        return Err((StatusCode::NOT_FOUND, Json(ErrorResponse {
+            error: "User not found".to_string(),
+        })));
+    }
+
+    // Build update query dynamically based on provided fields
+    let mut query = String::from("UPDATE users SET ");
+    let mut params: Vec<String> = Vec::new();
+    let mut query_builder = sqlx::query("");
+
+    if let Some(password) = &payload.password {
+        params.push("password = ?".to_string());
+        query_builder = query_builder.bind(password);
+    }
+
+    if let Some(role) = &payload.role {
+        if !["admin", "manager", "technician"].contains(&role.as_str()) {
+            return Err((StatusCode::BAD_REQUEST, Json(ErrorResponse {
+                error: "Invalid role. Must be one of: admin, manager, technician".to_string(),
+            })));
+        }
+        params.push("role = ?".to_string());
+        query_builder = query_builder.bind(role);
+    }
+
+    if let Some(is_active) = &payload.is_active {
+        params.push("is_active = ?".to_string());
+        query_builder = query_builder.bind(is_active);
+    }
+
+    if params.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, Json(ErrorResponse {
+            error: "No fields to update".to_string(),
+        })));
+    }
+
+    query.push_str(&params.join(", "));
+    query.push_str(" WHERE id = ?");
+    query_builder = query_builder.bind(user_id);
+
+    // Execute update
+    match query_builder.execute(&pool).await {
+        Ok(_) => {
+            // Fetch updated user
+            match sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = ?")
+                .bind(user_id)
+                .fetch_one(&pool)
+                .await
+            {
+                Ok(user) => {
+                    println!("[LOG] User updated successfully: {}", user.username);
+                    Ok(Json(user))
+                },
+                Err(_) => {
+                    println!("[LOG] Failed to fetch updated user: {}", user_id);
+                    Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
+                        error: "Failed to fetch updated user".to_string(),
+                    })))
+                },
+            }
+        },
+        Err(_) => {
+            println!("[LOG] Failed to update user: {}", user_id);
+            Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
+                error: "Failed to update user".to_string(),
+            })))
+        },
+    }
+}
+
+// PUT /api/machines/{id}
+pub async fn update_machine(
+    headers: HeaderMap,
+    Path(machine_id): Path<i64>,
+    State(pool): State<DbPool>,
+    Json(payload): Json<UpdateMachineRequest>,
+) -> Result<Json<MachineResponse>, (StatusCode, Json<ErrorResponse>)> {
+    println!("[LOG] Update machine request received for machine ID: {}", machine_id);
+    require_admin(&headers, &pool).await?;
+
+    // Check if machine exists
+    if let Err(_) = sqlx::query("SELECT id FROM machines WHERE id = ?")
+        .bind(machine_id)
+        .fetch_one(&pool)
+        .await
+    {
+        return Err((StatusCode::NOT_FOUND, Json(ErrorResponse {
+            error: "Machine not found".to_string(),
+        })));
+    }
+
+    // Build update query dynamically based on provided fields
+    let mut query = String::from("UPDATE machines SET ");
+    let mut params: Vec<String> = Vec::new();
+    let mut query_builder = sqlx::query("");
+
+    if let Some(name) = &payload.name {
+        params.push("name = ?".to_string());
+        query_builder = query_builder.bind(name);
+    }
+
+    if let Some(code) = &payload.code {
+        params.push("code = ?".to_string());
+        query_builder = query_builder.bind(code);
+    }
+
+    if let Some(location) = &payload.location {
+        params.push("location = ?".to_string());
+        query_builder = query_builder.bind(location);
+    }
+
+    if let Some(machine_type) = &payload.machine_type {
+        params.push("machine_type = ?".to_string());
+        query_builder = query_builder.bind(machine_type);
+    }
+
+    if let Some(true) = payload.regenerate_api_key {
+        params.push("api_key = ?".to_string());
+        query_builder = query_builder.bind(auth::generate_machine_api_key());
+    }
+
+    if params.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, Json(ErrorResponse {
+            error: "No fields to update".to_string(),
+        })));
+    }
+
+    query.push_str(&params.join(", "));
+    query.push_str(" WHERE id = ?");
+    query_builder = query_builder.bind(machine_id);
+
+    // Execute update
+    match query_builder.execute(&pool).await {
+        Ok(_) => {
+            // Fetch updated machine and its API key
+            match sqlx::query("SELECT m.*, m.api_key FROM machines m WHERE m.id = ?")
+                .bind(machine_id)
+                .fetch_one(&pool)
+                .await
+            {
+                Ok(row) => {
+                    let machine = Machine {
+                        id: row.get("id"),
+                        name: row.get("name"),
+                        code: row.get("code"),
+                        location: row.get("location"),
+                        machine_type: row.get("machine_type"),
+                        current_speed: row.get("current_speed"),
+                        status_message: row.get("status_message"),
+                        is_online: row.get("is_online"),
+                        last_update: row.get("last_update"),
+                    };
+                    let api_key: String = row.get("api_key");
+                    
+                    println!("[LOG] Machine updated successfully: {}", machine.name);
+                    Ok(Json(MachineResponse {
+                        id: machine.id,
+                        name: machine.name,
+                        code: machine.code,
+                        api_key,
+                        location: machine.location,
+                        machine_type: machine.machine_type,
+                    }))
+                },
+                Err(_) => {
+                    println!("[LOG] Failed to fetch updated machine: {}", machine_id);
+                    Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
+                        error: "Failed to fetch updated machine".to_string(),
+                    })))
+                },
+            }
+        },
+        Err(e) => {
+            println!("[LOG] Failed to update machine: {}", machine_id);
+            if e.to_string().contains("UNIQUE constraint failed") {
+                Err((StatusCode::BAD_REQUEST, Json(ErrorResponse {
+                    error: "Machine name or code already exists".to_string(),
+                })))
+            } else {
+                Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
+                    error: "Failed to update machine".to_string(),
+                })))
+            }
+        },
+    }
+}
+
+// GET /api/users
+pub async fn list_users(
+    headers: HeaderMap,
+    State(pool): State<DbPool>,
+) -> Result<Json<UserListResponse>, (StatusCode, Json<ErrorResponse>)> {
+    println!("[LOG] List users request received");
+    require_admin(&headers, &pool).await?;
+
+    match sqlx::query_as::<_, User>("SELECT * FROM users ORDER BY username").fetch_all(&pool).await {
+        Ok(users) => {
+            println!("[LOG] Users listed successfully");
+            Ok(Json(UserListResponse { users }))
+        },
+        Err(_) => {
+            println!("[LOG] Failed to list users");
+            Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
+                error: "Database error".to_string(),
             })))
         },
     }
